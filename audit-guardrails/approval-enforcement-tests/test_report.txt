@@ -1,0 +1,42 @@
+APPROVAL ENFORCEMENT TEST REPORT
+Generated: 2026-11-25 13:07
+
+Requirement                                          Tests
+---------------------------------------------------  --------------------
+Sender cannot send a non-approved draft              A1 - A6
+API bypass (send without approval) returns 403       B1 - B6
+Restart safety, no duplicate emails                  C1, C2
+Mock CRM down -> email not marked as logged          D1 - D3
+
+============================= test session starts =============================
+platform win32 -- Python 3.14.7, pytest-9.2.0, pluggy-1.7.0 -- C:\Week6_Training_Tasks\audit-guardrails\approval-enforcement-tests\venv\Scripts\python.exe
+rootdir: C:\Week6_Training_Tasks\audit-guardrails\approval-enforcement-tests
+plugins: anyio-4.16.0
+collecting ... collected 18 items
+
+test_approval_enforcement.py::test_A1_sender_refuses_non_approved_draft[DRAFT] PASSED [  5%]
+test_approval_enforcement.py::test_A1_sender_refuses_non_approved_draft[REJECTED] PASSED [ 11%]
+test_approval_enforcement.py::test_A2_sender_refuses_unknown_draft PASSED [ 16%]
+test_approval_enforcement.py::test_A3_sender_sends_approved_draft PASSED [ 22%]
+test_approval_enforcement.py::test_A4_database_blocks_marking_sent_without_approval PASSED [ 27%]
+test_approval_enforcement.py::test_A5_sending_twice_creates_one_email PASSED [ 33%]
+test_approval_enforcement.py::test_A6_rejected_draft_cannot_be_approved_or_sent PASSED [ 38%]
+test_approval_enforcement.py::test_B1_api_send_without_approval_returns_403 PASSED [ 44%]
+test_approval_enforcement.py::test_B2_api_send_rejected_draft_returns_403 PASSED [ 50%]
+test_approval_enforcement.py::test_B3_api_approved_draft_sends_once PASSED [ 55%]
+test_approval_enforcement.py::test_B4_api_send_unknown_draft_returns_404 PASSED [ 61%]
+test_approval_enforcement.py::test_B5_api_approve_requires_reviewer_name PASSED [ 66%]
+test_approval_enforcement.py::test_B6_api_reject_requires_reason PASSED  [ 72%]
+test_approval_enforcement.py::test_C1_restart_after_crash_resumes_without_duplicate_emails PASSED [ 77%]
+test_approval_enforcement.py::test_C2_running_again_after_finish_sends_nothing_new PASSED [ 83%]
+test_approval_enforcement.py::test_D1_crm_down_email_is_not_marked_as_logged PASSED [ 88%]
+test_approval_enforcement.py::test_D2_after_crm_recovers_it_is_logged_once_without_resending PASSED [ 94%]
+test_approval_enforcement.py::test_D3_api_send_with_crm_down_reports_failed_logging PASSED [100%]
+
+============================== warnings summary ===============================
+venv\Lib\site-packages\fastapi\testclient.py:1
+  C:\Week6_Training_Tasks\audit-guardrails\approval-enforcement-tests\venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 18 passed, 1 warning in 2.03s ========================
