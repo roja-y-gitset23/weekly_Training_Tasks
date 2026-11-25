@@ -1,0 +1,122 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Outreach Agent Demo</title>
+<style>
+  body{font-family:Segoe UI,Arial,sans-serif;max-width:1000px;margin:20px auto;padding:0 12px;color:#222}
+  .card{border:1px solid #ddd;border-radius:8px;padding:12px;margin:10px 0}
+  .badge{padding:2px 8px;border-radius:10px;font-size:12px;color:#fff;margin-left:6px}
+  .LOW{background:#2e7d32}.MEDIUM{background:#ef6c00}.HIGH{background:#c62828}
+  .DRAFT{background:#1565c0}.SENT{background:#2e7d32}.REJECTED{background:#6d4c41}.BLOCKED{background:#000}
+  input,textarea{width:100%;box-sizing:border-box;margin:4px 0;padding:6px}
+  textarea{height:130px}
+  button{padding:6px 12px;margin:4px 4px 0 0;cursor:pointer}
+  .ok{background:#e8f5e9}.bad{background:#ffebee}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  td,th{border:1px solid #ddd;padding:4px 6px;text-align:left;vertical-align:top}
+  .small{font-size:12px;color:#555}.hide{display:none}
+  tr.block td{background:#ffebee;font-weight:600}
+</style>
+</head>
+<body>
+<h2>Outreach Agent Demo</h2>
+
+<div class="card">
+  <b>1. Upload prospects CSV</b><br>
+  <input type="file" id="file" accept=".csv" style="width:auto">
+  <button onclick="upload()">Upload and run</button>
+  Reviewer: <input id="rev" value="reviewer1" style="width:140px">
+  <div id="msg" class="small"></div>
+</div>
+
+<div class="card" id="runbox">No run yet.</div>
+
+<div>
+  <button onclick="tab('drafts')">Review drafts</button>
+  <button onclick="tab('crm')">CRM entries</button>
+  <button onclick="tab('audit')">Audit trail</button>
+</div>
+<div id="drafts"></div>
+<div id="crm" class="hide"></div>
+<div id="audit" class="hide"></div>
+
+<script>
+let runId = null, sig = "";
+
+function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+function say(t,bad){const m=document.getElementById("msg");m.textContent=t;m.style.color=bad?"#c62828":"#2e7d32";}
+function tab(n){["drafts","crm","audit"].forEach(x=>document.getElementById(x).classList.toggle("hide",x!==n));}
+
+async function api(path,opts){
+  const r=await fetch(path,opts); let d=null;
+  try{d=await r.json();}catch(e){}
+  if(!r.ok) throw new Error((d&&d.detail)||r.statusText);
+  return d;
+}
+
+async function upload(){
+  const f=document.getElementById("file").files[0];
+  if(!f){say("Choose a CSV file first",true);return;}
+  const fd=new FormData(); fd.append("file",f);
+  try{const d=await api("/upload",{method:"POST",body:fd}); runId=d.run_id; sig=""; say("Started "+runId); refresh();}
+  catch(e){say(e.message,true);}
+}
+
+async function approve(id){
+  const body={reviewer:document.getElementById("rev").value||"reviewer1",
+              subject:document.getElementById("s"+id).value,
+              body:document.getElementById("b"+id).value};
+  try{await api(`/drafts/${id}/approve`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}); say("Approved and sent draft #"+id);}
+  catch(e){say("Blocked: "+e.message,true);}
+  sig=""; refresh();
+}
+
+async function reject(id){
+  const reason=prompt("Reason for rejection?"); if(!reason) return;
+  try{await api(`/drafts/${id}/reject`,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({reviewer:document.getElementById("rev").value||"reviewer1",reason})}); say("Rejected draft #"+id);}
+  catch(e){say(e.message,true);}
+  sig=""; refresh();
+}
+
+function draftCard(d){
+  let h=`<div class="card ${d.status==="BLOCKED"?"bad":""}"><b>${esc(d.company)}</b> (${esc(d.prospect_name)})
+    <span class="badge ${d.risk}">${d.risk}</span><span class="badge ${d.status}">${d.status}</span>
+    <div class="small">Research: ${esc(d.research)}</div>`;
+  if(d.status==="DRAFT"){
+    h+=`<input id="s${d.id}" value="${esc(d.subject)}"><textarea id="b${d.id}">${esc(d.body)}</textarea>
+        <button onclick="approve(${d.id})">Approve (or Edit and Approve)</button>
+        <button onclick="reject(${d.id})">Reject</button>`;
+  } else {
+    h+=`<div><b>${esc(d.subject)}</b><pre style="white-space:pre-wrap">${esc(d.body)}</pre></div>`;
+    if(d.reason) h+=`<div class="small">Reason: ${esc(d.reason)}</div>`;
+    if(d.reviewer) h+=`<div class="small">Reviewer: ${esc(d.reviewer)}${d.edited?" (edited before approval)":""}</div>`;
+  }
+  return h+"</div>";
+}
+
+async function refresh(){
+  let run;
+  try{run=runId?await api("/runs/"+runId):await api("/runs/latest");}catch(e){return;}
+  runId=run.run_id;
+  document.getElementById("runbox").innerHTML=
+    `<b>Run ${esc(run.run_id)}</b> - status: <b>${esc(run.status)}</b> - processed ${run.done}/${run.total}
+     - tokens in/out: ${run.tokens_in}/${run.tokens_out} - cost: $${run.cost}
+     ${run.note?`<div style="color:#c62828">${esc(run.note)}</div>`:""}`;
+
+  const s=JSON.stringify(run.drafts.map(d=>[d.id,d.status,d.risk]));
+  if(s!==sig){sig=s; document.getElementById("drafts").innerHTML=run.drafts.map(draftCard).join("")||"<p>Waiting for drafts...</p>";}
+
+  const crm=await api("/crm");
+  document.getElementById("crm").innerHTML=`<h3>CRM activities (${crm.length})</h3><table><tr><th>ID</th><th>Prospect</th><th>Subject</th><th>Sent at</th><th>Run</th></tr>`+
+    crm.map(c=>`<tr><td>${c.id}</td><td>${esc(c.prospect_email)}</td><td>${esc(c.email_subject)}</td><td>${esc(c.sent_at)}</td><td>${esc(c.run_id)}</td></tr>`).join("")+"</table>";
+
+  const au=await api("/audit/"+runId);
+  document.getElementById("audit").innerHTML=`<h3>Audit trail</h3><table><tr><th>Time</th><th>Step</th><th>Thought</th><th>Action</th><th>Input</th><th>Observation</th><th>Tokens</th></tr>`+
+    au.map(a=>`<tr class="${/block|BLOCK|INJECTION|BUDGET|Refused/.test(a.action+a.observation)?"block":""}"><td>${esc(a.timestamp.slice(11,19))}</td><td>${esc(a.step)}</td><td>${esc(a.thought)}</td><td>${esc(a.action)}</td><td>${esc(a.action_input)}</td><td>${esc(a.observation)}</td><td>${a.tokens}</td></tr>`).join("")+"</table>";
+}
+setInterval(refresh,1000); refresh();
+</script>
+</body>
+</html>
