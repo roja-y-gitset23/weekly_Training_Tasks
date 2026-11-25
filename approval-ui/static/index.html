@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Draft Approval</title>
+<style>
+  body { font-family: Arial, sans-serif; background:#f4f6f8; margin:0; color:#222; }
+  header { background:#1f3a5f; color:#fff; padding:14px 24px; display:flex; justify-content:space-between; align-items:center; }
+  header h1 { margin:0; font-size:20px; }
+  header input { padding:6px 10px; border-radius:4px; border:none; width:180px; }
+  main { max-width:900px; margin:20px auto; padding:0 16px; }
+  .tabs button { padding:8px 16px; border:1px solid #1f3a5f; background:#fff; cursor:pointer; margin-right:4px; border-radius:4px; }
+  .tabs button.active { background:#1f3a5f; color:#fff; }
+  #msg { margin:12px 0; padding:10px; border-radius:4px; display:none; }
+  #msg.ok { background:#d9f2e1; display:block; }
+  #msg.err { background:#fbdcdc; display:block; }
+  .card { background:#fff; border-radius:8px; padding:16px 20px; margin:14px 0; box-shadow:0 1px 3px rgba(0,0,0,.12); }
+  .top { display:flex; justify-content:space-between; align-items:center; }
+  .top h3 { margin:0; }
+  .badge { padding:3px 10px; border-radius:12px; font-size:12px; color:#fff; background:#888; }
+  .badge.DRAFT { background:#e0a800; } .badge.APPROVED { background:#2e9e5b; }
+  .badge.REJECTED { background:#d64545; } .badge.SENT { background:#2a6fdb; }
+  .label { font-size:12px; color:#666; text-transform:uppercase; margin-top:10px; }
+  p { margin:4px 0; }
+  pre { white-space:pre-wrap; font-family:inherit; background:#f7f7f7; padding:10px; border-radius:4px; margin:4px 0; }
+  .actions { margin-top:14px; }
+  .actions button { padding:8px 14px; border:none; border-radius:4px; color:#fff; cursor:pointer; margin-right:6px; }
+  .approve { background:#2e9e5b; } .edit { background:#2a6fdb; } .reject { background:#d64545; } .grey { background:#777; }
+  .panel input, .panel textarea { width:100%; box-sizing:border-box; padding:8px; margin:6px 0; font-family:inherit; font-size:14px; }
+  .meta { margin-top:12px; font-size:13px; color:#444; border-top:1px solid #eee; padding-top:8px; }
+  .empty { text-align:center; color:#777; padding:40px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Draft Approval</h1>
+  <div>Reviewer: <input id="reviewer" placeholder="Your name"></div>
+</header>
+<main>
+  <div class="tabs">
+    <button data-status="DRAFT" class="active">Drafts</button>
+    <button data-status="APPROVED">Approved</button>
+    <button data-status="REJECTED">Rejected</button>
+    <button data-status="SENT">Sent</button>
+  </div>
+  <div id="msg"></div>
+  <div id="list"></div>
+</main>
+
+<script>
+let current = "DRAFT";
+let cache = [];
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+function show(text, type) {
+  const m = $("#msg");
+  m.textContent = text;
+  m.className = type;
+  if (type === "ok") setTimeout(() => { m.className = ""; }, 3000);
+}
+
+async function api(path, method = "GET", body) {
+  const r = await fetch(path, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const d = data.detail;
+    throw new Error(typeof d === "string" ? d : "Invalid input: please fill all fields (reason needs 3+ characters)");
+  }
+  return data;
+}
+
+function reviewer() {
+  const v = $("#reviewer").value.trim();
+  if (!v) { show("Please enter your reviewer name at the top first.", "err"); return null; }
+  return v;
+}
+
+function cardHtml(d) {
+  const isDraft = d.status === "DRAFT";
+  const meta = !isDraft && d.reviewer
+    ? `<div class="meta">Decision by <b>${esc(d.reviewer)}</b> at ${esc(d.decided_at)}${d.reason ? ` &mdash; <b>Reason:</b> ${esc(d.reason)}` : ""}</div>` : "";
+  const actions = isDraft ? `
+    <div class="actions">
+      <button class="approve" onclick="approve(${d.id})">Approve</button>
+      <button class="edit" onclick="openEdit(${d.id})">Edit and Approve</button>
+      <button class="reject" onclick="openReject(${d.id})">Reject</button>
+    </div>
+    <div class="panel" id="panel-${d.id}"></div>` : "";
+  return `
+  <div class="card">
+    <div class="top"><h3>${esc(d.company)}</h3><span class="badge ${d.status}">${d.status}</span></div>
+    <div class="label">Research summary</div><p>${esc(d.research_summary)}</p>
+    <div class="label">Subject</div><p><b>${esc(d.subject)}</b></p>
+    <div class="label">Body</div><pre>${esc(d.body)}</pre>
+    ${actions}${meta}
+  </div>`;
+}
+
+async function load() {
+  try {
+    cache = await api("/drafts?status=" + current);
+    $("#list").innerHTML = cache.length
+      ? cache.map(cardHtml).join("")
+      : `<div class="empty">No ${current} drafts.</div>`;
+  } catch (e) { show(e.message, "err"); }
+}
+
+function openEdit(id) {
+  const d = cache.find(x => x.id === id);
+  $("#panel-" + id).innerHTML = `
+    <div class="label">Edit subject</div>
+    <input id="es-${id}" value="${esc(d.subject)}">
+    <div class="label">Edit body</div>
+    <textarea id="eb-${id}" rows="8">${esc(d.body)}</textarea>
+    <button class="approve" style="padding:8px 14px;border:none;border-radius:4px;color:#fff;cursor:pointer" onclick="saveEdit(${id})">Save and Approve</button>
+    <button class="grey" style="padding:8px 14px;border:none;border-radius:4px;color:#fff;cursor:pointer" onclick="load()">Cancel</button>`;
+}
+
+function openReject(id) {
+  $("#panel-" + id).innerHTML = `
+    <div class="label">Reason for rejection (required)</div>
+    <textarea id="rr-${id}" rows="3" placeholder="e.g. Claim about funding is not in the research notes"></textarea>
+    <button class="reject" style="padding:8px 14px;border:none;border-radius:4px;color:#fff;cursor:pointer" onclick="confirmReject(${id})">Confirm Reject</button>
+    <button class="grey" style="padding:8px 14px;border:none;border-radius:4px;color:#fff;cursor:pointer" onclick="load()">Cancel</button>`;
+}
+
+async function approve(id) {
+  const r = reviewer(); if (!r) return;
+  try { await api(`/drafts/${id}/approve`, "POST", { reviewer: r }); show("Draft approved.", "ok"); load(); }
+  catch (e) { show(e.message, "err"); load(); }
+}
+
+async function saveEdit(id) {
+  const r = reviewer(); if (!r) return;
+  try {
+    await api(`/drafts/${id}/edit-approve`, "POST", {
+      reviewer: r, subject: $("#es-" + id).value, body: $("#eb-" + id).value
+    });
+    show("Draft edited and approved.", "ok"); load();
+  } catch (e) { show(e.message, "err"); }
+}
+
+async function confirmReject(id) {
+  const r = reviewer(); if (!r) return;
+  const reason = $("#rr-" + id).value.trim();
+  if (reason.length < 3) { show("A rejection reason is required.", "err"); return; }
+  try { await api(`/drafts/${id}/reject`, "POST", { reviewer: r, reason }); show("Draft rejected.", "ok"); load(); }
+  catch (e) { show(e.message, "err"); }
+}
+
+document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
+  document.querySelectorAll(".tabs button").forEach(x => x.classList.remove("active"));
+  b.classList.add("active");
+  current = b.dataset.status;
+  load();
+});
+
+load();
+</script>
+</body>
+</html>
